@@ -1,0 +1,65 @@
+name: Publish PostgreSQL 14 with pg_cron
+
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - .github/workflows/publish.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-pg14
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check upstream image
+        id: check
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          IMAGE="${IMAGE,,}"
+          docker pull --platform linux/amd64 docker.io/library/postgres:14
+          base_digest="$(docker image inspect docker.io/library/postgres:14 --format '{{index .RepoDigests 0}}' | cut -d@ -f2)"
+          echo "base_digest=$base_digest" >> "$GITHUB_OUTPUT"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          previous_digest=""
+          if docker pull --platform linux/amd64 "$IMAGE:14"; then
+            previous_digest="$(docker image inspect "$IMAGE:14" --format '{{index .Config.Labels "org.opencontainers.image.base.digest"}}')"
+          fi
+          if [[ "$EVENT_NAME" != schedule || "$base_digest" != "$previous_digest" ]]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: docker/setup-buildx-action@v3
+        if: steps.check.outputs.build == 'true'
+      - name: Build and publish
+        if: steps.check.outputs.build == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          pull: true
+          push: true
+          tags: ${{ steps.check.outputs.image }}:14
+          build-args: |
+            BASE_DIGEST=${{ steps.check.outputs.base_digest }}
