@@ -2,7 +2,7 @@ name: Publish PostgreSQL 14 with pg_cron
 
 on:
   schedule:
-    - cron: '17 5 * * *'
+    - cron: '23 5 * * *'
   push:
     branches: [main]
     paths:
