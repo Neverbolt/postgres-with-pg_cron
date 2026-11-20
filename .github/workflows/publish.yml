@@ -1,4 +1,4 @@
-name: Publish PostgreSQL 14 with pg_cron
+name: Publish PostgreSQL 14 with pg_cron and VectorChord
 
 on:
   schedule:
@@ -52,6 +52,23 @@ jobs:
           fi
       - uses: docker/setup-buildx-action@v3
         if: steps.check.outputs.build == 'true'
+      - name: Smoke test both extensions
+        if: steps.check.outputs.build == 'true'
+        run: |
+          set -euo pipefail
+          docker build --pull --build-arg "BASE_DIGEST=${{ steps.check.outputs.base_digest }}" -t pg14-extensions:smoke .
+          docker run --detach --name pg14-extensions-smoke -e POSTGRES_PASSWORD=smoke pg14-extensions:smoke
+          trap 'docker logs pg14-extensions-smoke || true; docker rm -f pg14-extensions-smoke || true' EXIT
+          for attempt in {1..30}; do
+            if docker exec pg14-extensions-smoke pg_isready -U postgres; then
+              break
+            fi
+            sleep 2
+          done
+          docker exec pg14-extensions-smoke psql -v ON_ERROR_STOP=1 -U postgres -d postgres \
+            -c "CREATE EXTENSION pg_cron;" \
+            -c "CREATE EXTENSION vchord CASCADE;" \
+            -c "SELECT extname, extversion FROM pg_extension WHERE extname IN ('pg_cron', 'vector', 'vchord') ORDER BY extname;"
       - name: Build and publish
         if: steps.check.outputs.build == 'true'
         uses: docker/build-push-action@v6
