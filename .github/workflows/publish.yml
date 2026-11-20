@@ -69,6 +69,8 @@ jobs:
             -c "CREATE EXTENSION pg_cron;" \
             -c "CREATE EXTENSION vchord CASCADE;" \
             -c "SELECT extname, extversion FROM pg_extension WHERE extname IN ('pg_cron', 'vector', 'vchord') ORDER BY extname;"
+          vector_version="$(docker exec pg14-extensions-smoke psql -At -U postgres -d postgres -c "SELECT extversion FROM pg_extension WHERE extname = 'vector'")"
+          [[ "$vector_version" =~ ^0\.(7|8)\. ]] || { echo "Unsupported pgvector version: $vector_version"; exit 1; }
       - name: Build and publish
         if: steps.check.outputs.build == 'true'
         uses: docker/build-push-action@v6
